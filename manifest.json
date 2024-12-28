@@ -1,0 +1,9 @@
+{
+    "id": "obsidian-ai-plugin",
+    "name": "AI Assistant",
+    "version": "1.0.0",
+    "minAppVersion": "0.15.0",
+    "description": "An AI assistant plugin for Obsidian, similar to Notion AI",
+    "author": "luomingzhong",
+    "isDesktopOnly": false
+} 
