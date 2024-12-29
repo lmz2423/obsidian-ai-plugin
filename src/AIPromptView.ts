@@ -1,5 +1,6 @@
 import { App, Editor, MarkdownView, Notice } from 'obsidian';
 import AIPlugin from './main';
+import { FlowchartInputView } from './FlowchartInputView';
 
 export class AIPromptView {
     private container: HTMLElement;
@@ -20,6 +21,32 @@ export class AIPromptView {
         this.input = document.createElement('input');
         this.input.addClass('ai-prompt-input');
         this.input.placeholder = '按住空格启动 AI...';
+        
+        // 添加键盘事件监听
+        this.input.addEventListener('keydown', async (e: KeyboardEvent) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                const prompt = this.input.value.trim();
+                if (prompt) {
+                    const loadingNotice = new Notice('AI 正在处理...', 0);
+                    try {
+                        const result = await this.plugin.generateResponse(prompt);
+                        if (result) {
+                            // 插入到当前光标位置
+                            this.editor.replaceSelection(result);
+                        }
+                    } catch (error) {
+                        new Notice('AI 处理失败: ' + error.message);
+                    } finally {
+                        loadingNotice.hide();
+                        this.hide();
+                    }
+                }
+            } else if (e.key === 'Escape') {
+                this.hide();
+            }
+        });
+        
         this.container.appendChild(this.input);
         
         // 创建下拉面板
@@ -39,9 +66,22 @@ export class AIPromptView {
             { id: 'summarize', name: '添加摘要', icon: 'list' },
             { id: 'todo', name: '添加待办事项', icon: 'checkbox' },
             { id: 'table', name: '添加表格', icon: 'table' },
-            { id: 'flowchart', name: '添加流程图', icon: 'flow' }
+            { 
+                id: 'flowchart', 
+                name: '添加流程图', 
+                icon: 'flow',
+                action: () => {
+                    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+                    if (!view) return;
+                    
+                    const flowchartInput = new FlowchartInputView(this.app, this.plugin, this.editor);
+                    flowchartInput.show();
+                    this.hide(); // 隐藏命令菜单
+                }
+            }
         ];
 
+        this.dropdown.empty();
         commands.forEach(cmd => {
             const item = document.createElement('div');
             item.addClass('ai-prompt-item');
@@ -57,12 +97,16 @@ export class AIPromptView {
             item.appendChild(text);
             
             item.addEventListener('click', async () => {
-                const prompt = this.input.value;
-                const result = await this.executeCommand(cmd.id, prompt);
-                if (result) {
-                    this.editor.replaceSelection(result);
+                if (cmd.action) {
+                    cmd.action();
+                } else {
+                    const prompt = this.input.value;
+                    const result = await this.executeCommand(cmd.id, prompt);
+                    if (result) {
+                        this.editor.replaceSelection(result);
+                    }
+                    this.hide();
                 }
-                this.hide();
             });
             
             this.dropdown.appendChild(item);

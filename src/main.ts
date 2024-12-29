@@ -2,6 +2,18 @@ import { App, Plugin, Editor, Menu, Notice, MarkdownView, EditorPosition } from 
 import { AIPromptView } from './AIPromptView';
 import { AISettingTab, AIPluginSettings, DEFAULT_SETTINGS, AI_PROVIDERS, AIProvider } from './settings';
 
+interface AIResponse {
+    content: string;
+    status: 'success' | 'error';
+}
+
+interface ResponseModalOptions {
+    result: string;
+    onAccept: () => void;
+    onReject: () => void;
+    onRetry: () => void;
+}
+
 export default class AIPlugin extends Plugin {
     settings: AIPluginSettings;
     private aiPromptView: AIPromptView | null = null;
@@ -181,17 +193,17 @@ export default class AIPlugin extends Plugin {
         }
     }
 
-    private async callAIAPI(prompt: string): Promise<string> {
+    private async callAIAPI(prompt: string): Promise<AIResponse> {
         try {
             const provider = AI_PROVIDERS.find((p: AIProvider) => p.id === this.settings.provider);
             if (!provider) {
-                throw new Error('未找到 AI 提供商');
+                return { content: '', status: 'error' };
             }
 
             // 使用自定义端点或默认端点
             const apiEndpoint = this.settings.apiEndpoint || provider.baseUrl;
             if (!apiEndpoint) {
-                throw new Error('未设置 API 端点');
+                return { content: '', status: 'error' };
             }
 
             const headers: Record<string, string> = {
@@ -242,38 +254,167 @@ export default class AIPlugin extends Plugin {
             });
 
             if (!response.ok) {
-                throw new Error(`API request failed: ${response.statusText}`);
+                return {
+                    content: `API request failed: ${response.statusText}`,
+                    status: 'error'
+                };
             }
 
             const data = await response.json();
             
             // 根据不同提供商解析不同的响应格式
+            let content = '';
             switch (this.settings.provider) {
                 case 'claude':
-                    return data.content[0].text;
+                    content = data.content[0].text;
+                    break;
                 default:
-                    return data.choices[0].message.content;
+                    content = data.choices[0].message.content;
             }
+
+            return {
+                content: content,
+                status: 'success'
+            };
+
         } catch (error) {
-            new Notice('AI API 调用失败: ' + (error as Error).message);
-            return '';
+            return {
+                content: (error as Error).message,
+                status: 'error'
+            };
         }
     }
 
     // AI 功能方法
     public async generateSummary(prompt: string): Promise<string> {
-        return await this.callAIAPI(`生成摘要：${prompt}`);
+        const response = await this.callAIAPI(`生成摘要：${prompt}`);
+        return response.status === 'success' ? response.content : '';
     }
 
     public async generateTodoList(prompt: string): Promise<string> {
-        return await this.callAIAPI(`生成待办事项：${prompt}`);
+        const response = await this.callAIAPI(`生成待办事项：${prompt}`);
+        return response.status === 'success' ? response.content : '';
     }
 
     public async generateTable(prompt: string): Promise<string> {
-        return await this.callAIAPI(`生成表格：${prompt}`);
+        const response = await this.callAIAPI(`生成表格：${prompt}`);
+        return response.status === 'success' ? response.content : '';
     }
 
     public async generateFlowchart(prompt: string): Promise<string> {
-        return await this.callAIAPI(`生成流程图：${prompt}`);
+        try {
+            // 显示加载状态
+            const loadingNotice = new Notice('正在思考中...', 0);
+            
+            const response = await this.callAIAPI(`使用 Mermaid 语法生成流程图：${prompt}`);
+            
+            // 关闭加载提示
+            loadingNotice.hide();
+
+            if (response.status === 'success' && response.content) {
+                // 显示结果确认面板
+                this.showResponseModal({
+                    result: response.content,
+                    onAccept: () => {
+                        // 在编辑器中插入流程图
+                        const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+                        if (editor) {
+                            const mermaidCode = `\`\`\`mermaid\n${response.content}\n\`\`\`\n`;
+                            editor.replaceSelection(mermaidCode);
+                        }
+                    },
+                    onReject: () => {
+                        // 不做任何操作，关闭面板
+                    },
+                    onRetry: async () => {
+                        // 重新生成
+                        return await this.generateFlowchart(prompt);
+                    }
+                });
+            }
+            return '';
+        } catch (error) {
+            new Notice('生成流程图失败: ' + (error as Error).message);
+            return '';
+        }
+    }
+
+    public async generateResponse(prompt: string): Promise<string> {
+        try {
+            const loadingNotice = new Notice('AI 正在思考...', 0);
+            const response = await this.callAIAPI(prompt);
+            loadingNotice.hide();
+            
+            if (response.status === 'error') {
+                throw new Error(response.content);
+            }
+            
+            return response.content;
+        } catch (error) {
+            console.error('AI Response Error:', error);
+            throw error;
+        }
+    }
+
+    private showResponseModal(options: ResponseModalOptions) {
+        const modal = document.createElement('div');
+        modal.addClass('ai-response-modal');
+
+        // 预览区域
+        const previewArea = document.createElement('div');
+        previewArea.addClass('ai-response-preview');
+        previewArea.innerHTML = `
+            <div class="preview-header">预览</div>
+            <div class="preview-content">
+                <pre><code>${options.result}</code></pre>
+            </div>
+        `;
+        modal.appendChild(previewArea);
+
+        // 按钮容器
+        const buttonContainer = document.createElement('div');
+        buttonContainer.addClass('button-container');
+
+        // 接受按钮
+        const acceptButton = document.createElement('button');
+        acceptButton.setText('接受');
+        acceptButton.addClass('mod-cta');
+        acceptButton.addEventListener('click', () => {
+            options.onAccept();
+            document.body.removeChild(modal);
+        });
+
+        // 放弃按钮
+        const rejectButton = document.createElement('button');
+        rejectButton.setText('放弃');
+        rejectButton.addEventListener('click', () => {
+            options.onReject();
+            document.body.removeChild(modal);
+        });
+
+        // 重试按钮
+        const retryButton = document.createElement('button');
+        retryButton.setText('再试一次');
+        retryButton.addEventListener('click', async () => {
+            document.body.removeChild(modal);
+            await options.onRetry();
+        });
+
+        buttonContainer.appendChild(acceptButton);
+        buttonContainer.appendChild(rejectButton);
+        buttonContainer.appendChild(retryButton);
+        modal.appendChild(buttonContainer);
+
+        // 添加到文档中
+        document.body.appendChild(modal);
+
+        // 点击外部关闭
+        const handleClickOutside = (e: MouseEvent) => {
+            if (!modal.contains(e.target as Node)) {
+                document.body.removeChild(modal);
+                document.removeEventListener('mousedown', handleClickOutside);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
     }
 } 

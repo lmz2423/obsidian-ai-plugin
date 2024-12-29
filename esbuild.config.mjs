@@ -19,8 +19,8 @@ const prod = process.argv[2] === "production";
 
 // 复制 manifest.json 和 styles.css 到 dist 目录
 fs.copyFileSync("manifest.json", "dist/manifest.json");
-if (fs.existsSync("styles.css")) {
-	fs.copyFileSync("styles.css", "dist/styles.css");
+if (fs.existsSync("css/styles.css")) {
+	fs.copyFileSync("css/styles.css", "dist/styles.css");
 }
 
 const context = await esbuild.context({
@@ -34,11 +34,20 @@ const context = await esbuild.context({
 		"electron",
 		...builtins],
 	format: "cjs",
-	target: "es2016",
+	target: "es2018",
 	logLevel: "info",
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
 	outfile: "dist/main.js",
+	plugins: [{
+        name: 'typescript-resolver',
+        setup(build) {
+            // 处理 TypeScript 路径别名和模块解析
+            build.onResolve({ filter: /^@\// }, args => {
+                return { path: args.path.replace(/^@\//, './src/') }
+            })
+        }
+    }]
 });
 
 if (prod) {
