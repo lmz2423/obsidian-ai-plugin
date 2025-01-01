@@ -57,7 +57,7 @@
 
 /* AI 输入框特定样式 */
 .ai-prompt-input {
-	height: var(--input-height);
+	height: 50px;
     max-height: 200px;
     padding: 12px;
     margin-bottom: 12px;

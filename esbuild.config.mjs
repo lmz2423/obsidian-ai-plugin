@@ -19,8 +19,9 @@ const prod = process.argv[2] === "production";
 
 // 复制 manifest.json 和 styles.css 到 dist 目录
 fs.copyFileSync("manifest.json", "dist/manifest.json");
-if (fs.existsSync("css/styles.css")) {
-	fs.copyFileSync("css/styles.css", "dist/styles.css");
+if (fs.existsSync("src/css/styles.css")) {
+	console.log("复制 styles.css 到 dist 目录");
+	fs.copyFileSync("src/css/styles.css", "dist/styles.css");
 }
 
 const context = await esbuild.context({

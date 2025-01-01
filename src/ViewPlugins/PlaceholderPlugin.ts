@@ -21,7 +21,7 @@ const addPromptInputEffect = StateEffect.define<DecorationSet>();
 class PlaceholderWidget extends WidgetType {
 	toDOM() {
 		const span = document.createElement("span");
-		span.textContent = " 按空格键启动AI";
+		span.textContent = " 按下空格键启动AI";
 		span.style.color = "rgba(0,0,0,0.3)";
 		span.style.pointerEvents = "none";
 		span.style.position = "absolute";
@@ -64,22 +64,22 @@ class PromptInputWidget extends WidgetType {
 		this.input.className = "ai-prompt-input";
 		
 		// 设置输入框样式
-		this.input.style.cssText = `
-			border: 1px solid var(--background-modifier-border);
-			border-radius: 10px;
-			padding: 4px 8px;
-			font-size: 14px;
-			height: var(--input-height);
-			line-height: 1.5;
-			width: calc(100% - 16px);
-			background: var(--background-primary);
-			color: var(--text-normal);
-			box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-			margin: 0;
-			position: relative;
-			outline: none;
-			display: block;
-		`;
+		// this.input.style.cssText = `
+		// 	border: 1px solid var(--background-modifier-border);
+		// 	border-radius: 10px;
+		// 	padding: 4px 8px;
+		// 	font-size: 14px;
+		// 	height: var(--input-height);
+		// 	line-height: 1.5;
+		// 	width: calc(100% - 16px);
+		// 	background: var(--background-primary);
+		// 	color: var(--text-normal);
+		// 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		// 	margin: 0;
+		// 	position: relative;
+		// 	outline: none;
+		// 	display: block;
+		// `;
 
 		// 添加事件监听
 		this.input.addEventListener("keydown", this.handleKeyDown.bind(this));
@@ -199,7 +199,6 @@ function cleanupExistingInputs() {
 const PlaceholderKeyMap = keymap.of([
 	{
 		key: " ",
-		preventDefault: true,
 		run: (view: EditorView) => {
 			const cursor = view.state.selection.main.head;
 			const line = view.state.doc.lineAt(cursor);
@@ -217,6 +216,7 @@ const PlaceholderKeyMap = keymap.of([
 				
 				return true;
 			}
+			 // 非空行时，让事件继续传播
 			return false;
 		},
 	},
