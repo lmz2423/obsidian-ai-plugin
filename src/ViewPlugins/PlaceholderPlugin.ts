@@ -7,134 +7,41 @@ import {
 	keymap,
 	EditorView,
 	PluginValue,
-	PluginSpec
 } from "@codemirror/view";
 import { RangeSetBuilder, StateEffect } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import type AIPlugin from "../main";
 import { AI_PROVIDERS } from "../settings";
 import { MarkdownView, Notice } from "obsidian";
+import { createPromptInputManager } from '../managers/PromptInputManager'
 
-// 定义 StateEffect
-const addPromptInputEffect = StateEffect.define<DecorationSet>();
-
-class PlaceholderWidget extends WidgetType {
-	toDOM() {
-		const span = document.createElement("span");
-		span.textContent = " 按下空格键启动AI";
-		span.style.color = "rgba(0,0,0,0.3)";
-		span.style.pointerEvents = "none";
-		span.style.position = "absolute";
-		span.style.left = "4px";
-		span.style.top = "50%";
-		span.style.transform = "translateY(-50%)";
-		span.style.fontStyle = "italic";
-		return span;
-	}
-}
-
-class PromptInputWidget extends WidgetType {
-	private view: EditorView;
-	private input: HTMLInputElement | null = null;
-
-	constructor(view: EditorView) {
-		super();
-		this.view = view;
-	}
-
-	toDOM() {
-		const wrapper = document.createElement("div");
-		wrapper.style.position = "absolute";
-		wrapper.style.zIndex = "999";
-		
-		// 获取光标位置
-		const cursor = this.view.state.selection.main.head;
-		const coords = this.view.coordsAtPos(cursor);
-		
-		if (coords) {
-			wrapper.style.left = `${coords.left}px`;
-			wrapper.style.top = `${coords.top}px`;
-			wrapper.style.width = '500px';
-		}
-		
-		// 创建输入框
-		this.input = document.createElement("input");
-		this.input.type = "text";
-		this.input.placeholder = "请输入你的prompt";
-		this.input.className = "ai-prompt-input";
-		
-		// 设置输入框样式
-		// this.input.style.cssText = `
-		// 	border: 1px solid var(--background-modifier-border);
-		// 	border-radius: 10px;
-		// 	padding: 4px 8px;
-		// 	font-size: 14px;
-		// 	height: var(--input-height);
-		// 	line-height: 1.5;
-		// 	width: calc(100% - 16px);
-		// 	background: var(--background-primary);
-		// 	color: var(--text-normal);
-		// 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-		// 	margin: 0;
-		// 	position: relative;
-		// 	outline: none;
-		// 	display: block;
-		// `;
-
-		// 添加事件监听
-		this.input.addEventListener("keydown", this.handleKeyDown.bind(this));
-		
-		// 防止事件冒泡到编辑器
-		this.input.addEventListener("keyup", (e) => e.stopPropagation());
-		this.input.addEventListener("keypress", (e) => e.stopPropagation());
-		this.input.addEventListener("mousedown", (e) => e.stopPropagation());
-		this.input.addEventListener("mouseup", (e) => e.stopPropagation());
-		this.input.addEventListener("click", (e) => e.stopPropagation());
-		
-		// 点击外部区域时关闭输入框
-		document.addEventListener("click", (e) => {
-			if (e.target !== this.input) {
-				this.destroy();
-			}
-		}, { once: true });
-		
-		// 自动聚焦
-		setTimeout(() => this.input?.focus(), 0);
-		
-		wrapper.appendChild(this.input);
-		return wrapper;
-	}
-
-	private handleKeyDown(event: KeyboardEvent) {
-		if (event.key === "Enter" && !event.isComposing) {
-			event.preventDefault();
-			const prompt = this.input?.value.trim();
-			if (prompt) {
-				// 移除输入框
-				this.destroy();
-				// 启动 AI 并传入 prompt
-				PlaceholderPluginActions.startAI(this.view, prompt);
-			}
-		} else if (event.key === "Escape") {
-			event.preventDefault();
-			// 移除输入框
-			this.destroy();
-		}
-		event.stopPropagation();
-	}
-
-	destroy() {
-		const parent = this.input?.parentElement;
-		if (parent) {
-			parent.remove();
-		}
-	}
-}
-
+// ================ 类型定义 ================
 interface PlaceholderPluginValue extends PluginValue {
 	decorations: DecorationSet;
 }
 
+// ================ 状态效果 ================
+const addPromptInputEffect = StateEffect.define<DecorationSet>();
+
+// ================ 占位符小部件 ================
+class PlaceholderWidget extends WidgetType {
+	toDOM() {
+		const span = document.createElement("span");
+		span.textContent = " 按下空格键启动AI";
+		span.style.cssText = `
+			color: rgba(0,0,0,0.3);
+			pointer-events: none;
+			position: absolute;
+			left: 4px;
+			top: 50%;
+			transform: translateY(-50%);
+			font-style: italic;
+		`;
+		return span;
+	}
+}
+
+// ================ 插件核心类 ================
 class PlaceholderPluginClass implements PlaceholderPluginValue {
 	decorations: DecorationSet;
 
@@ -143,39 +50,50 @@ class PlaceholderPluginClass implements PlaceholderPluginValue {
 	}
 
 	update(update: ViewUpdate) {
+		if (this.shouldUpdateDecorations(update)) {
+			this.decorations = this.computeDecorations(update.view);
+		}
+	}
+
+	private shouldUpdateDecorations(update: ViewUpdate): boolean {
 		// 处理 StateEffect
 		for (const tr of update.transactions) {
 			for (const effect of tr.effects) {
 				if (effect.is(addPromptInputEffect)) {
 					this.decorations = effect.value;
-					return;
+					return false;
 				}
 			}
 		}
-
-		if (update.docChanged || update.selectionSet) {
-			this.decorations = this.computeDecorations(update.view);
-		}
+		return update.docChanged || update.selectionSet;
 	}
 
 	computeDecorations(view: EditorView): DecorationSet {
 		const builder = new RangeSetBuilder<Decoration>();
 		const cursor = view.state.selection.main.head;
 		const line = view.state.doc.lineAt(cursor);
-		const isEmpty = line.text.trim().length === 0;
-
-		if (isEmpty) {
-			const deco = Decoration.widget({
-				widget: new PlaceholderWidget(),
-				side: -1
-			});
-			builder.add(line.from, line.from, deco);
+		
+		if (this.isEmptyLine(line.text)) {
+			this.addPlaceholderDecoration(builder, line.from);
 		}
 
 		return builder.finish();
 	}
+
+	private isEmptyLine(text: string): boolean {
+		return text.trim().length === 0;
+	}
+
+	private addPlaceholderDecoration(builder: RangeSetBuilder<Decoration>, position: number) {
+		const deco = Decoration.widget({
+			widget: new PlaceholderWidget(),
+			side: -1
+		});
+		builder.add(position, position, deco);
+	}
 }
 
+// ================ 插件实例和扩展 ================
 const basePlugin = ViewPlugin.fromClass(PlaceholderPluginClass, {
 	decorations: v => v.decorations
 });
@@ -187,109 +105,145 @@ const decorationExtension = EditorView.decorations.of((view: EditorView): Decora
 
 const PlaceholderPluginExtension = [basePlugin, decorationExtension];
 
-// 清理已存在的输入框
-function cleanupExistingInputs() {
-	const existingInputs = document.querySelectorAll('.ai-prompt-input');
-	existingInputs.forEach(input => {
-		const parent = input.parentElement;
-		if (parent) parent.remove();
-	});
-}
-
+// ================ 键盘映射 ================
 const PlaceholderKeyMap = keymap.of([
 	{
 		key: " ",
 		run: (view: EditorView) => {
 			const cursor = view.state.selection.main.head;
 			const line = view.state.doc.lineAt(cursor);
-			const isEmpty = line.text.trim().length === 0;
-			if (isEmpty) {
-				console.log("空行中按下了空格键，显示提示词输入框");
-				
-				// 清理已存在的输入框
-				cleanupExistingInputs();
-				
-				// 直接创建并添加输入框到 DOM
-				const promptWidget = new PromptInputWidget(view);
-				const dom = promptWidget.toDOM();
-				document.body.appendChild(dom);
-				
+			
+			if (line.text.trim().length === 0) {
+				const promptManager = createPromptInputManager(view);
+				promptManager.show();
 				return true;
 			}
-			 // 非空行时，让事件继续传播
 			return false;
 		},
 	},
 ]);
 
-export const PlaceholderPlugin: Extension[] = [
-	...PlaceholderPluginExtension,
-	PlaceholderKeyMap
-];
-
-// 将 AI 相关的操作放在一个单独的模块中，方便管理和访问
-export const PlaceholderPluginActions = {
-	_pluginInstance: null as AIPlugin | null,
-	_abortController: null as AbortController | null,
+// ================ AI 操作管理器类 ================
+class AIOperationsManager {
+	private _pluginInstance: AIPlugin | null = null;
+	private _abortController: AbortController | null = null;
 
 	cleanup() {
-		this._pluginInstance = null;
+		// this._pluginInstance = null;
 		if (this._abortController) {
 			this._abortController.abort();
 			this._abortController = null;
 		}
-	},
+	}
 
-	startAI: async (view: EditorView, prompt: string) => {
+	setPlugin(plugin: AIPlugin) {
+		this._pluginInstance = plugin;
+	}
+
+	getPlugin() {
+		return this._pluginInstance;
+	}
+
+	async startAI(view: EditorView, prompt: string) {
 		const cursor = view.state.selection.main.head;
 		const originalLine = view.state.doc.lineAt(cursor);
 		
-		// 检查插件实例和设置
-		if (!PlaceholderPluginActions._pluginInstance) {
-			console.error('Plugin instance not found');
-			return;
-		}
-
-		// 显示思考中的提示
+		if (!this.validatePluginInstance()) return;
+		
 		const notice = new Notice("AI 正在思考中...", 0);
+		const { settings, provider } = this.getSettings();
+		
+		if (!this.validateSettings(settings, provider, notice)) return;
+		
+		const originalView = view;
+		const originalEditor = this.getOriginalEditor();
+		if (!originalEditor) return;
 
-		const settings = PlaceholderPluginActions._pluginInstance.settings;
+		await this.handleAIRequest(
+			originalView, 
+			originalLine, 
+			originalEditor, 
+			settings, 
+			provider, 
+			prompt, 
+			notice
+		);
+	}
+
+	private validatePluginInstance(): boolean {
+		if (!this._pluginInstance) {
+			console.error('Plugin instance not found');
+			return false;
+		}
+		return true;
+	}
+
+	private getSettings() {
+		const settings = this._pluginInstance!.settings;
 		const provider = AI_PROVIDERS.find(p => p.id === settings.provider);
+		return { settings, provider };
+	}
 
+	private validateSettings(settings: any, provider: any, notice: Notice): boolean {
 		if (!provider) {
 			console.error('AI provider not found');
 			notice.hide();
-			return;
+			return false;
 		}
 
 		if (!settings.apiKey) {
 			console.error('API key not set');
 			notice.hide();
-			return;
+			return false;
 		}
 
-		// 保存当前视图的引用
-		const originalView = view;
-		const originalEditor = PlaceholderPluginActions._pluginInstance.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-		if (!originalEditor) {
+		return true;
+	}
+
+	private getOriginalEditor() {
+		const editor = this._pluginInstance?.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+		if (!editor) {
 			console.error('Editor not found');
-			return;
 		}
+		return editor;
+	}
 
-		// 如果有正在进行的请求，先取消
-		if (PlaceholderPluginActions._abortController) {
-			PlaceholderPluginActions._abortController.abort();
+	private async handleAIRequest(
+		view: EditorView,
+		line: { from: number },
+		originalEditor: any,
+		settings: any,
+		provider: any,
+		prompt: string,
+		notice: Notice
+	) {
+		this.setupAbortController();
+		const headers = this.buildHeaders(settings);
+		const requestBody = this.buildRequestBody(settings, prompt);
+
+		try {
+			const response = await this.makeRequest(settings, provider, headers, requestBody);
+			await this.handleStreamResponse(response, view, line, originalEditor, notice);
+		} catch (error) {
+			this.handleError(error, notice);
+		} finally {
+			this.cleanup();
+			notice.hide();
 		}
-		
-		// 创建新的 AbortController
-		PlaceholderPluginActions._abortController = new AbortController();
+	}
 
-		// 构建请求头
+	private setupAbortController() {
+		if (this._abortController) {
+			this._abortController.abort();
+		}
+		this._abortController = new AbortController();
+	}
+
+	private buildHeaders(settings: any): Record<string, string> {
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json'
 		};
 
-		// 根据不同提供商设置不同的认证头
 		switch (settings.provider) {
 			case 'openai':
 			case 'deepseek':
@@ -309,127 +263,140 @@ export const PlaceholderPluginActions = {
 				headers['Authorization'] = `Bearer ${settings.apiKey}`;
 		}
 
-		// 构建请求体
-		const requestBody = {
+		return headers;
+	}
+
+	private buildRequestBody(settings: any, prompt: string) {
+		return {
 			model: settings.model,
 			messages: [{ role: 'user', content: prompt }],
 			stream: true,
+			temperature: settings.temperature,
 			...(settings.provider === 'claude' && { max_tokens: 1000 })
 		};
-		
+	}
+
+	private async makeRequest(settings: any, provider: any, headers: any, body: any) {
+		const response = await fetch(settings.apiEndpoint || provider.baseUrl, {
+			method: "POST",
+			headers,
+			body: JSON.stringify(body),
+			signal: this._abortController!.signal
+		});
+
+		if (!response.ok) {
+			throw new Error(`API request failed: ${response.statusText}`);
+		}
+
+		if (!response.body) {
+			throw new Error('Response body is null');
+		}
+
+		return response;
+	}
+
+	private async handleStreamResponse(
+		response: Response,
+		view: EditorView,
+		line: { from: number },
+		originalEditor: any,
+		notice: Notice
+	) {
+		const reader = response.body!.getReader();
+		const decoder = new TextDecoder();
+		let currentPosition = line.from;  // 跟踪当前插入位置
+
+		// 初始化空内容
+		view.dispatch({
+			changes: {
+				from: line.from,
+				to: line.from,
+				insert: '',
+			},
+		});
+
 		try {
-			const response = await fetch(settings.apiEndpoint || provider.baseUrl, {
-				method: "POST",
-				headers,
-				body: JSON.stringify(requestBody),
-				signal: PlaceholderPluginActions._abortController.signal
-			});
-
-			if (!response.ok) {
-				notice.hide();
-				throw new Error(`API request failed: ${response.statusText}`);
-			}
-
-			if (!response.body) {
-				notice.hide();
-				throw new Error('Response body is null');
-			}
-
-			const reader = response.body.getReader();
-			const decoder = new TextDecoder();
-			let accumulatedContent = '';
-			let isFirstChunk = true;
-
-			// 创建初始空行
-			originalView.dispatch({
-				changes: {
-					from: originalLine.from,
-					to: originalLine.from,
-					insert: '',
-				},
-			});
-
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
 
-				// 解码二进制数据
 				const chunk = decoder.decode(value, { stream: true });
-				
-				// 处理数据块
 				const lines = chunk.split('\n');
+
 				for (const line of lines) {
-					if (line.trim() === '') continue;
-					if (line.trim() === 'data: [DONE]') continue;
-					
+					if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
+
 					try {
-						const data = JSON.parse(line.replace(/^data: /, ''));
-						let content = '';
-						
-						// 根据不同提供商解析流式响应
-						switch (settings.provider) {
-							case 'claude':
-								content = data.type === 'content_block_delta' ? data.delta.text : '';
-								break;
-							case 'chatglm':
-								content = data.choices[0].delta.content || '';
-								break;
-							default: // OpenAI 格式
-								content = data.choices[0].delta.content || '';
-						}
-
+						const content = this.parseChunkContent(line);
 						if (content) {
-							// 当收到第一个内容时隐藏提示
-							if (isFirstChunk) {
-								notice.hide();
-								isFirstChunk = false;
-							}
-
-							// 检查编辑器状态
-							const currentEditor = PlaceholderPluginActions._pluginInstance?.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-							if (currentEditor !== originalEditor) {
-								console.log('Editor changed, aborting stream');
-								reader.cancel();
+							if (!this.isEditorValid(originalEditor)) {
 								return;
 							}
 
-							// 累积内容
-							accumulatedContent += content;
-
 							// 更新编辑器内容
-							originalView.dispatch({
+							view.dispatch({
 								changes: {
-									from: originalLine.from,
-									to: originalLine.from + accumulatedContent.length - content.length,
-									insert: accumulatedContent,
-								},
+									from: currentPosition,
+									to: currentPosition,
+									insert: content
+								}
 							});
+							
+							// 更新位置指针
+							currentPosition += content.length;
 						}
 					} catch (e) {
 						console.error('Error parsing stream:', e);
 					}
 				}
 			}
-		} catch (error) {
-			if (error.name === 'AbortError') {
-				console.log('AI 请求已取消');
-			} else {
-				console.error("启动AI失败:", error);
-			}
-			notice.hide();
 		} finally {
-			if (PlaceholderPluginActions._abortController) {
-				PlaceholderPluginActions._abortController = null;
-			}
-			notice.hide();
+			reader.releaseLock();
 		}
-	},
-
-	setPlugin: (plugin: AIPlugin) => {
-		PlaceholderPluginActions._pluginInstance = plugin;
-	},
-
-	getPlugin: () => {
-		return PlaceholderPluginActions._pluginInstance;
 	}
-};
+
+	private parseChunkContent(line: string): string {
+		try {
+			const data = JSON.parse(line.replace(/^data: /, ''));
+			const settings = this._pluginInstance!.settings;
+
+			switch (settings.provider) {
+				case 'claude':
+					return data.type === 'content_block_delta' ? data.delta.text : '';
+				case 'chatglm':
+					return data.choices[0].delta.content || '';
+				default: // OpenAI 格式
+					return data.choices[0].delta.content || '';
+			}
+		} catch (e) {
+			console.error('Error parsing chunk:', e);
+			return '';
+		}
+	}
+
+	private isEditorValid(originalEditor: any): boolean {
+		const currentEditor = this._pluginInstance?.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+		if (currentEditor !== originalEditor) {
+			console.log('Editor changed, aborting stream');
+			return false;
+		}
+		return true;
+	}
+
+	private handleError(error: any, notice: Notice) {
+		if (error.name === 'AbortError') {
+			console.log('AI 请求已取消');
+		} else {
+			console.error("启动AI失败:", error);
+		}
+		notice.hide();
+	}
+}
+
+// ================ 导出 ================
+export const PlaceholderPluginActions = new AIOperationsManager();
+
+export const PlaceholderPlugin: Extension[] = [
+	...PlaceholderPluginExtension,
+	PlaceholderKeyMap
+];

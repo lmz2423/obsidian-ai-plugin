@@ -3,17 +3,6 @@ import { AISettingTab, AIPluginSettings, DEFAULT_SETTINGS, AI_PROVIDERS, AIProvi
 import { PlaceholderPlugin, PlaceholderPluginActions } from './ViewPlugins/PlaceholderPlugin';
 import type { Extension } from '@codemirror/state';
 
-interface AIResponse {
-    content: string;
-    status: 'success' | 'error';
-}
-
-interface ResponseModalOptions {
-    result: string;
-    onAccept: () => void;
-    onReject: () => void;
-    onRetry: () => void;
-}
 
 export default class AIPlugin extends Plugin {
     settings: AIPluginSettings;
@@ -74,7 +63,6 @@ export default class AIPlugin extends Plugin {
             this.app.workspace.updateOptions();
             this.editorExtension = null;
         }
-        
         // 清理 PlaceholderPlugin 的资源
         PlaceholderPluginActions.cleanup();
     }

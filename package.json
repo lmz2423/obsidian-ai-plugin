@@ -4,11 +4,11 @@
 	"description": "An AI assistant plugin for Obsidian, similar to Notion AI",
 	"main": "dist/main.js",
 	"scripts": {
-		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"version": "node version-bump.mjs",
-		"watch-styles": "node sync-styles.mjs",
-		"dev:all": "npm run dev & npm run watch-styles",
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview",
+		"check": "tsc --noEmit",
+		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"clean": "rm -rf dist"
 	},
 	"keywords": [
@@ -22,10 +22,16 @@
 		"@types/node": "^18.19.67",
 		"@typescript-eslint/eslint-plugin": "^5.2.0",
 		"@typescript-eslint/parser": "^5.2.0",
+		"@vitejs/plugin-vue": "^5.0.0",
+		"@vue/compiler-sfc": "^3.5.13",
+		"@vue/runtime-core": "^3.5.13",
 		"builtin-modules": "^3.2.0",
-		"esbuild": "^0.19.0",
 		"obsidian": "^1.4.0",
 		"tslib": "2.3.1",
-		"typescript": "^4.9.5"
+		"typescript": "^4.9.5",
+		"vite": "^5.0.0"
+	},
+	"dependencies": {
+		"vue": "^3.5.13"
 	}
 }
