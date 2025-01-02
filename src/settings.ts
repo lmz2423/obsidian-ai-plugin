@@ -18,6 +18,7 @@ export interface AIPluginSettings {
     model: string;
     apiKey: string;
     apiEndpoint: string;
+    temperature: number;
 }
 
 export const AI_PROVIDERS: AIProvider[] = [
@@ -94,7 +95,8 @@ export const DEFAULT_SETTINGS: AIPluginSettings = {
     provider: 'openai',
     model: 'gpt-3.5-turbo',
     apiKey: '',
-    apiEndpoint: 'https://api.openai.com/v1/chat/completions'
+    apiEndpoint: 'https://api.openai.com/v1/chat/completions',
+    temperature: 1.0
 };
 
 export class AISettingTab extends PluginSettingTab {
@@ -179,6 +181,19 @@ export class AISettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     });
             });
+
+        // 温度设置
+        new Setting(containerEl)
+            .setName('Temperature')
+            .setDesc('调整模型输出的随机性 (0.0-2.0)')
+            .addSlider(slider => slider
+                .setLimits(0, 2, 0.1)
+                .setValue(this.plugin.settings.temperature)
+                .setDynamicTooltip()
+                .onChange(async (value) => {
+                    this.plugin.settings.temperature = value;
+                    await this.plugin.saveSettings();
+                }));
 
         // 添加重置按钮
         new Setting(containerEl)

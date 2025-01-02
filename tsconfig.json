@@ -1,13 +1,13 @@
 {
   "compilerOptions": {
-	"types": ["node"],
+	"types": ["node", "vue"],
     "baseUrl": ".",
     "inlineSourceMap": true,
     "inlineSources": true,
     "module": "ESNext",
     "target": "ES6",
 	"paths": {
-		"*": ["src/*"]
+		"@/*": ["src/*"]
 	},
     "allowJs": true,
     "noImplicitAny": true,
@@ -20,9 +20,19 @@
       "ES5",
       "ES6",
       "ES7"
+    ],
+    "jsx": "preserve",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "typeRoots": [
+        "./node_modules/@types",
+        "./src/types"
     ]
   },
   "include": [
-   "src/**/*"
+   "src/**/*",
+   "src/**/*.vue",
+   "src/**/*.ts",
+   "src/types/**/*.d.ts"
   ]
 }
