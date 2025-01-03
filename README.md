@@ -54,20 +54,20 @@ A powerful AI assistant plugin for Obsidian that helps you create and manage not
 ## Local Development
 
 1. Clone repository:
-\`\`\`bash
+```bash
 git clone [repository-url]
 cd obsidian-ai-plugin
-\`\`\`
+```
 
 2. Install dependencies:
-\`\`\`bash
+`bash
 npm install
-\`\`\`
+```
 
 3. Development mode:
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
 
 4. Local testing:
 To test the plugin in local Obsidian:
@@ -76,11 +76,11 @@ To test the plugin in local Obsidian:
      - macOS: {vault}/.obsidian/plugins/
    - Create a new folder: obsidian-ai-plugin
    - Create symbolic links:
-\`\`\`bash
+```bash
 ln -s $(pwd)/dist/main.js [vault-path]/.obsidian/plugins/obsidian-ai-plugin/main.js
 ln -s $(pwd)/dist/manifest.json [vault-path]/.obsidian/plugins/obsidian-ai-plugin/manifest.json
 ln -s $(pwd)/dist/styles.css [vault-path]/.obsidian/plugins/obsidian-ai-plugin/styles.css
-\`\`\`
+```
 
 ## Important Notes
 
@@ -160,20 +160,20 @@ Pull Requests and Issues are welcome. Before submitting, please:
 ## 本地开发
 
 1. 克隆仓库：
-\`\`\`bash
+`bash
 git clone [repository-url]
 cd obsidian-ai-plugin
-\`\`\`
+```
 
 2. 安装依赖：
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 3. 开发模式：
-\`\`\`bash
+`bash
 npm run dev
-\`\`\`
+```
 
 4. 本地测试：
 为了在本地 Obsidian 中测试插件，你需要：
@@ -182,11 +182,11 @@ npm run dev
      - macOS: {vault}/.obsidian/plugins/
    - 在插件目录中创建一个新文件夹：obsidian-ai-plugin
    - 创建符号链接：
-\`\`\`bash
+```bash
 ln -s $(pwd)/dist/main.js [vault-path]/.obsidian/plugins/obsidian-ai-plugin/main.js
 ln -s $(pwd)/dist/manifest.json [vault-path]/.obsidian/plugins/obsidian-ai-plugin/manifest.json
 ln -s $(pwd)/dist/styles.css [vault-path]/.obsidian/plugins/obsidian-ai-plugin/styles.css
-\`\`\`
+```
 
 ## 注意事项
 
