@@ -60,7 +60,7 @@ cd obsidian-ai-plugin
 ```
 
 2. Install dependencies:
-`bash
+```bash
 npm install
 ```
 
