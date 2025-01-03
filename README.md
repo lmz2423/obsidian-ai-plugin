@@ -160,7 +160,7 @@ Pull Requests and Issues are welcome. Before submitting, please:
 ## 本地开发
 
 1. 克隆仓库：
-`bash
+```bash
 git clone [repository-url]
 cd obsidian-ai-plugin
 ```
@@ -171,7 +171,7 @@ npm install
 ```
 
 3. 开发模式：
-`bash
+```bash
 npm run dev
 ```
 
