@@ -14,6 +14,7 @@ import type AIPlugin from "../main";
 import { AI_PROVIDERS } from "../settings";
 import { MarkdownView, Notice, requestUrl, RequestUrlParam } from "obsidian";
 import { createPromptInputManager } from '../managers/PromptInputManager'
+import OpenAI from 'openai';
 
 // ================ 类型定义 ================
 interface PlaceholderPluginValue extends PluginValue {
@@ -127,6 +128,7 @@ const PlaceholderKeyMap = keymap.of([
 class AIOperationsManager {
 	private _pluginInstance: AIPlugin | null = null;
 	private _abortController: AbortController | null = null;
+	private _openai: OpenAI | null = null;
 
 	cleanup() {
 		// this._pluginInstance = null;
@@ -276,35 +278,68 @@ class AIOperationsManager {
 		};
 	}
 
+	private initializeOpenAI(settings: any) {
+		this._openai = new OpenAI({
+			apiKey: settings.apiKey,
+			dangerouslyAllowBrowser: true, // 必须添加此选项以在浏览器中运行
+			baseURL: settings.apiEndpoint || undefined,
+		});
+	}
+
 	private async makeRequest(settings: any, provider: any, headers: any, body: any) {
 		try {
-			const params: RequestUrlParam = {
-				url: settings.apiEndpoint || provider.baseUrl,
-				method: "POST",
-				headers,
-				body: JSON.stringify(body),
-				throw: true
-			};
+			if (!this._openai) {
+				this.initializeOpenAI(settings);
+			}
 
-			const response = await requestUrl(params);
-			return response;
-		} catch (error) {
-			console.error('Request failed:', error);
-			throw new Error(`API request failed: ${error.message}`);
+			// 添加错误处理和重试逻辑
+			const maxRetries = 3;
+			let lastError;
+
+			for (let i = 0; i < maxRetries; i++) {
+				try {
+					const stream = await this._openai!.chat.completions.create({
+						model: settings.model,
+						messages: [{ role: 'user', content: body.messages[0].content }],
+						stream: true,
+						temperature: settings.temperature,
+					});
+
+					return stream;
+				} catch (error: any) {
+					lastError = error;
+					if (error.status === 429) { // Rate limit error
+						await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // 指数退避
+						continue;
+					}
+					throw error; // 其他错误直接抛出
+				}
+			}
+
+			throw lastError; // 如果重试全部失败，抛出最后一个错误
+		} catch (error: any) {
+			if (error instanceof OpenAI.APIError) {
+				console.error('OpenAI API Error:', {
+					status: error.status,
+					message: error.message,
+					code: error.code,
+					type: error.type
+				});
+				throw new Error(`OpenAI API Error: ${error.message}`);
+			} else {
+				console.error('Unexpected error:', error);
+				throw error;
+			}
 		}
 	}
 
 	private async handleStreamResponse(
-		response: any,
+		stream: any,
 		view: EditorView,
 		line: { from: number },
 		originalEditor: any,
 		notice: Notice
 	) {
-		// requestUrl 返回的响应格式与 fetch 不同
-		// 需要先解析响应文本
-		const responseText = response.text;
-		const lines = responseText.split('\n');
 		let currentPosition = line.from;
 
 		view.dispatch({
@@ -316,52 +351,22 @@ class AIOperationsManager {
 		});
 
 		try {
-			for (const line of lines) {
-				if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
-
-				try {
-					const content = this.parseChunkContent(line);
-					if (content) {
-						if (!this.isEditorValid(originalEditor)) {
-							return;
+			for await (const chunk of stream) {
+				const content = chunk.choices[0]?.delta?.content || '';
+				if (content && this.isEditorValid(originalEditor)) {
+					view.dispatch({
+						changes: {
+							from: currentPosition,
+							to: currentPosition,
+							insert: content
 						}
-
-						view.dispatch({
-							changes: {
-								from: currentPosition,
-								to: currentPosition,
-								insert: content
-							}
-						});
-						
-						currentPosition += content.length;
-					}
-				} catch (e) {
-					console.error('Error parsing line:', e);
+					});
+					currentPosition += content.length;
 				}
 			}
 		} catch (error) {
-			console.error('Error processing response:', error);
+			console.error('Error processing stream:', error);
 			throw error;
-		}
-	}
-
-	private parseChunkContent(line: string): string {
-		try {
-			const data = JSON.parse(line.replace(/^data: /, ''));
-			const settings = this._pluginInstance!.settings;
-
-			switch (settings.provider) {
-				case 'claude':
-					return data.type === 'content_block_delta' ? data.delta.text : '';
-				case 'chatglm':
-					return data.choices[0].delta.content || '';
-				default: // OpenAI 格式
-					return data.choices[0].delta.content || '';
-			}
-		} catch (e) {
-			console.error('Error parsing chunk:', e);
-			return '';
 		}
 	}
 
@@ -377,10 +382,31 @@ class AIOperationsManager {
 	private handleError(error: any, notice: Notice) {
 		if (error.name === 'AbortError') {
 			console.log('AI 请求已取消');
+			new Notice('AI 请求已取消');
+		} else if (error instanceof OpenAI.APIError) {
+			const errorMessage = this.getOpenAIErrorMessage(error);
+			console.error("OpenAI API 错误:", errorMessage);
+			new Notice(`AI 请求失败: ${errorMessage}`);
 		} else {
 			console.error("启动AI失败:", error);
+			new Notice(`AI 请求失败: ${error.message || '未知错误'}`);
 		}
 		notice.hide();
+	}
+
+	private getOpenAIErrorMessage(error: OpenAI.APIError): string {
+		switch (error.status) {
+			case 401:
+				return 'API Key 无效';
+			case 429:
+				return '请求过于频繁，请稍后再试';
+			case 500:
+				return '服务器错误，请稍后再试';
+			case 503:
+				return '服务暂时不可用，请稍后再试';
+			default:
+				return error.message;
+		}
 	}
 }
 
