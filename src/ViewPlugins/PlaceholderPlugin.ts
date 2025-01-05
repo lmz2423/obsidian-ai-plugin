@@ -14,7 +14,6 @@ import type AIPlugin from "../main";
 import { AI_PROVIDERS } from "../settings";
 import { MarkdownView, Notice, requestUrl, RequestUrlParam } from "obsidian";
 import { createPromptInputManager } from '../managers/PromptInputManager'
-import OpenAI from 'openai';
 
 // ================ 类型定义 ================
 interface PlaceholderPluginValue extends PluginValue {
@@ -128,7 +127,6 @@ const PlaceholderKeyMap = keymap.of([
 class AIOperationsManager {
 	private _pluginInstance: AIPlugin | null = null;
 	private _abortController: AbortController | null = null;
-	private _openai: OpenAI | null = null;
 
 	cleanup() {
 		// this._pluginInstance = null;
@@ -278,63 +276,36 @@ class AIOperationsManager {
 		};
 	}
 
-	private initializeOpenAI(settings: any) {
-		this._openai = new OpenAI({
-			apiKey: settings.apiKey,
-			dangerouslyAllowBrowser: true, // 必须添加此选项以在浏览器中运行
-			baseURL: settings.apiEndpoint || undefined,
-		});
-	}
-
 	private async makeRequest(settings: any, provider: any, headers: any, body: any) {
 		try {
-			if (!this._openai) {
-				this.initializeOpenAI(settings);
+			const response = await fetch(settings.apiEndpoint || provider.baseUrl, {
+				method: "POST",
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${settings.apiKey}`,
+				},
+				body: JSON.stringify({
+					model: settings.model,
+					messages: body.messages,
+					stream: true,
+					temperature: settings.temperature,
+				}),
+			});
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
 			}
 
-			// 添加错误处理和重试逻辑
-			const maxRetries = 3;
-			let lastError;
-
-			for (let i = 0; i < maxRetries; i++) {
-				try {
-					const stream = await this._openai!.chat.completions.create({
-						model: settings.model,
-						messages: [{ role: 'user', content: body.messages[0].content }],
-						stream: true,
-						temperature: settings.temperature,
-					});
-
-					return stream;
-				} catch (error: any) {
-					lastError = error;
-					if (error.status === 429) { // Rate limit error
-						await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // 指数退避
-						continue;
-					}
-					throw error; // 其他错误直接抛出
-				}
-			}
-
-			throw lastError; // 如果重试全部失败，抛出最后一个错误
-		} catch (error: any) {
-			if (error instanceof OpenAI.APIError) {
-				console.error('OpenAI API Error:', {
-					status: error.status,
-					message: error.message,
-					code: error.code,
-					type: error.type
-				});
-				throw new Error(`OpenAI API Error: ${error.message}`);
-			} else {
-				console.error('Unexpected error:', error);
-				throw error;
-			}
+			return response;
+		} catch (error) {
+			console.error('Request failed:', error);
+			throw error;
 		}
 	}
 
 	private async handleStreamResponse(
-		stream: any,
+		response: Response,
 		view: EditorView,
 		line: { from: number },
 		originalEditor: any,
@@ -342,26 +313,69 @@ class AIOperationsManager {
 	) {
 		let currentPosition = line.from;
 
-		view.dispatch({
-			changes: {
-				from: line.from,
-				to: line.from,
-				insert: '',
-			},
-		});
+			view.dispatch({
+				changes: {
+					from: line.from,
+					to: line.from,
+					insert: '',
+				},
+			});
 
 		try {
-			for await (const chunk of stream) {
-				const content = chunk.choices[0]?.delta?.content || '';
-				if (content && this.isEditorValid(originalEditor)) {
-					view.dispatch({
-						changes: {
-							from: currentPosition,
-							to: currentPosition,
-							insert: content
+			const reader = response.body!.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() || '';
+
+				for (const line of lines) {
+					if (!line.trim() || line === 'data: [DONE]') continue;
+					
+					try {
+						const jsonString = line.replace(/^data: /, '');
+						const json = JSON.parse(jsonString);
+						const content = json.choices?.[0]?.delta?.content || '';
+
+						if (content && this.isEditorValid(originalEditor)) {
+							view.dispatch({
+								changes: {
+									from: currentPosition,
+									to: currentPosition,
+									insert: content
+								}
+							});
+							currentPosition += content.length;
 						}
-					});
-					currentPosition += content.length;
+					} catch (e) {
+						console.error('Error parsing stream data:', e);
+					}
+				}
+			}
+
+			// 处理最后可能剩余的数据
+			if (buffer.trim() && buffer !== 'data: [DONE]') {
+				try {
+					const jsonString = buffer.replace(/^data: /, '');
+					const json = JSON.parse(jsonString);
+					const content = json.choices?.[0]?.delta?.content || '';
+
+					if (content && this.isEditorValid(originalEditor)) {
+						view.dispatch({
+							changes: {
+								from: currentPosition,
+								to: currentPosition,
+								insert: content
+							}
+						});
+					}
+				} catch (e) {
+					console.error('Error parsing final buffer:', e);
 				}
 			}
 		} catch (error) {
@@ -380,33 +394,34 @@ class AIOperationsManager {
 	}
 
 	private handleError(error: any, notice: Notice) {
-		if (error.name === 'AbortError') {
-			console.log('AI 请求已取消');
-			new Notice('AI 请求已取消');
-		} else if (error instanceof OpenAI.APIError) {
-			const errorMessage = this.getOpenAIErrorMessage(error);
-			console.error("OpenAI API 错误:", errorMessage);
-			new Notice(`AI 请求失败: ${errorMessage}`);
-		} else {
-			console.error("启动AI失败:", error);
-			new Notice(`AI 请求失败: ${error.message || '未知错误'}`);
-		}
-		notice.hide();
-	}
+		let errorMessage = '未知错误';
 
-	private getOpenAIErrorMessage(error: OpenAI.APIError): string {
-		switch (error.status) {
-			case 401:
-				return 'API Key 无效';
-			case 429:
-				return '请求过于频繁，请稍后再试';
-			case 500:
-				return '服务器错误，请稍后再试';
-			case 503:
-				return '服务暂时不可用，请稍后再试';
-			default:
-				return error.message;
+		if (error.name === 'AbortError') {
+			errorMessage = 'AI 请求已取消';
+		} else if (error.status) {
+			switch (error.status) {
+				case 401:
+					errorMessage = 'API Key 无效';
+					break;
+				case 429:
+					errorMessage = '请求过于频繁，请稍后再试';
+					break;
+				case 500:
+					errorMessage = '服务器错误，请稍后再试';
+					break;
+				case 503:
+					errorMessage = '服务暂时不可用，请稍后再试';
+					break;
+				default:
+					errorMessage = `请求失败: ${error.status} ${error.message || ''}`;
+			}
+		} else {
+			errorMessage = error.message || '请求失败';
 		}
+
+		console.error("AI 请求失败:", error);
+		new Notice(`AI 请求失败: ${errorMessage}`);
+		notice.hide();
 	}
 }
 
