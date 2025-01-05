@@ -16,7 +16,7 @@ export interface AIProvider {
 export interface AIPluginSettings {
     provider: string;
     model: string;
-    apiKey: string;
+    apiKeys: { [key: string]: string };
     apiEndpoint: string;
     temperature: number;
 }
@@ -30,6 +30,19 @@ export const AI_PROVIDERS: AIProvider[] = [
             { id: 'gpt-4', name: 'GPT-4' },
             { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
             { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+        ]
+    },
+    {
+        id: 'google',
+        name: 'Google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+        models: [
+			{ id: 'gemini-1.5-flash', name: 'Gemini 1.5 flash' },
+			{ id: 'gemini-1.5-pro,', name: 'Gemini 1.5 Pro' },
+			{ id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B' },
+			{ id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash Experimental' },
+			{ id: 'gemini-2.0-flash-thinking-exp-1219', name: 'Gemini 2.0 Flash Thinking Experimental' },
+			{ id: 'gemini-exp-1206', name: 'Gemini Experimental 1206' },
         ]
     },
     {
@@ -94,7 +107,7 @@ export const AI_PROVIDERS: AIProvider[] = [
 export const DEFAULT_SETTINGS: AIPluginSettings = {
     provider: 'openai',
     model: 'gpt-3.5-turbo',
-    apiKey: '',
+    apiKeys: {},
     apiEndpoint: 'https://api.openai.com/v1/chat/completions',
     temperature: 1.0
 };
@@ -122,16 +135,16 @@ export class AISettingTab extends PluginSettingTab {
                 dropdown.setValue(this.plugin.settings.provider)
                     .onChange(async (value) => {
                         this.plugin.settings.provider = value;
-                        // 更新默认 API 端点
                         const provider = AI_PROVIDERS.find(p => p.id === value);
                         if (provider) {
                             // 设置默认模型
                             if (provider.models.length > 0) {
                                 this.plugin.settings.model = provider.models[0].id;
                             }
+                            // 更新 API 端点为新提供商的默认端点
+                            this.plugin.settings.apiEndpoint = provider.baseUrl;
                         }
                         await this.plugin.saveSettings();
-                        // 重新显示设置页面以更新模型选项
                         this.display();
                     });
             });
@@ -157,12 +170,12 @@ export class AISettingTab extends PluginSettingTab {
         // API Key 输入
         new Setting(containerEl)
             .setName('API Key')
-            .setDesc('输入 API Key')
+            .setDesc('输入当前提供商的 API Key')
             .addText(text => text
                 .setPlaceholder('Enter your API key')
-                .setValue(this.plugin.settings.apiKey)
+                .setValue(this.plugin.settings.apiKeys[this.plugin.settings.provider] || '')
                 .onChange(async (value) => {
-                    this.plugin.settings.apiKey = value;
+                    this.plugin.settings.apiKeys[this.plugin.settings.provider] = value;
                     await this.plugin.saveSettings();
                 }));
 
@@ -172,12 +185,11 @@ export class AISettingTab extends PluginSettingTab {
             .setDesc('输入 API 端点地址（可选，留空使用默认值）')
             .addText(text => {
                 const provider = AI_PROVIDERS.find(p => p.id === this.plugin.settings.provider);
-                text.setPlaceholder(provider?.baseUrl || 'Enter API endpoint')
-                    .setValue(this.plugin.settings.apiEndpoint)
+                const defaultEndpoint = provider?.baseUrl || '';
+                text.setPlaceholder(defaultEndpoint || 'Enter API endpoint')
+                    .setValue(this.plugin.settings.apiEndpoint || defaultEndpoint)
                     .onChange(async (value) => {
-                        // 如果输入为空，使用默认端点
-                        const provider = AI_PROVIDERS.find(p => p.id === this.plugin.settings.provider);
-                        this.plugin.settings.apiEndpoint = value || provider?.baseUrl || '';
+                        this.plugin.settings.apiEndpoint = value || defaultEndpoint;
                         await this.plugin.saveSettings();
                     });
             });

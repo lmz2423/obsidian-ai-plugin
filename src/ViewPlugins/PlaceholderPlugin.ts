@@ -12,7 +12,7 @@ import { RangeSetBuilder, StateEffect } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import type AIPlugin from "../main";
 import { AI_PROVIDERS } from "../settings";
-import { MarkdownView, Notice } from "obsidian";
+import { MarkdownView, Notice, requestUrl, RequestUrlParam } from "obsidian";
 import { createPromptInputManager } from '../managers/PromptInputManager'
 
 // ================ 类型定义 ================
@@ -277,36 +277,36 @@ class AIOperationsManager {
 	}
 
 	private async makeRequest(settings: any, provider: any, headers: any, body: any) {
-		const response = await fetch(settings.apiEndpoint || provider.baseUrl, {
-			method: "POST",
-			headers,
-			body: JSON.stringify(body),
-			signal: this._abortController!.signal
-		});
+		try {
+			const params: RequestUrlParam = {
+				url: settings.apiEndpoint || provider.baseUrl,
+				method: "POST",
+				headers,
+				body: JSON.stringify(body),
+				throw: true
+			};
 
-		if (!response.ok) {
-			throw new Error(`API request failed: ${response.statusText}`);
+			const response = await requestUrl(params);
+			return response;
+		} catch (error) {
+			console.error('Request failed:', error);
+			throw new Error(`API request failed: ${error.message}`);
 		}
-
-		if (!response.body) {
-			throw new Error('Response body is null');
-		}
-
-		return response;
 	}
 
 	private async handleStreamResponse(
-		response: Response,
+		response: any,
 		view: EditorView,
 		line: { from: number },
 		originalEditor: any,
 		notice: Notice
 	) {
-		const reader = response.body!.getReader();
-		const decoder = new TextDecoder();
-		let currentPosition = line.from;  // 跟踪当前插入位置
+		// requestUrl 返回的响应格式与 fetch 不同
+		// 需要先解析响应文本
+		const responseText = response.text;
+		const lines = responseText.split('\n');
+		let currentPosition = line.from;
 
-		// 初始化空内容
 		view.dispatch({
 			changes: {
 				from: line.from,
@@ -316,42 +316,33 @@ class AIOperationsManager {
 		});
 
 		try {
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
+			for (const line of lines) {
+				if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
 
-				const chunk = decoder.decode(value, { stream: true });
-				const lines = chunk.split('\n');
-
-				for (const line of lines) {
-					if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
-
-					try {
-						const content = this.parseChunkContent(line);
-						if (content) {
-							if (!this.isEditorValid(originalEditor)) {
-								return;
-							}
-
-							// 更新编辑器内容
-							view.dispatch({
-								changes: {
-									from: currentPosition,
-									to: currentPosition,
-									insert: content
-								}
-							});
-							
-							// 更新位置指针
-							currentPosition += content.length;
+				try {
+					const content = this.parseChunkContent(line);
+					if (content) {
+						if (!this.isEditorValid(originalEditor)) {
+							return;
 						}
-					} catch (e) {
-						console.error('Error parsing stream:', e);
+
+						view.dispatch({
+							changes: {
+								from: currentPosition,
+								to: currentPosition,
+								insert: content
+							}
+						});
+						
+						currentPosition += content.length;
 					}
+				} catch (e) {
+					console.error('Error parsing line:', e);
 				}
 			}
-		} finally {
-			reader.releaseLock();
+		} catch (error) {
+			console.error('Error processing response:', error);
+			throw error;
 		}
 	}
 
