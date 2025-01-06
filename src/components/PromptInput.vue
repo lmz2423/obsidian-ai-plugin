@@ -1,5 +1,4 @@
 <template>
-  <Teleport to="body">
     <div 
       v-if="visible" 
       class="prompt-input-wrapper"
@@ -20,11 +19,10 @@
       />
       <!-- 这里可以添加更多UI元素，比如按钮、历史记录等 -->
     </div>
-  </Teleport> 
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, defineExpose } from 'vue'
 import type { EditorView } from '@codemirror/view'
 
 const props = defineProps<{
@@ -72,10 +70,10 @@ const handleKeyDown = (event: KeyboardEvent) => {
 const show = () => {
   visible.value = true
   promptText.value = ''
-  // 等待 DOM 更新后聚焦
-  setTimeout(() => {
+  // 使用 nextTick 替代 setTimeout
+  nextTick(() => {
     inputRef.value?.focus()
-  }, 0)
+  })
 }
 
 // 隐藏输入框

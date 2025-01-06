@@ -12,8 +12,9 @@ import { RangeSetBuilder, StateEffect } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import type AIPlugin from "../main";
 import { AI_PROVIDERS } from "../settings";
-import { MarkdownView, Notice } from "obsidian";
+import { MarkdownView, Notice, requestUrl, RequestUrlParam } from "obsidian";
 import { createPromptInputManager } from '../managers/PromptInputManager'
+import { I18nManager } from '../i18n';
 
 // ================ 类型定义 ================
 interface PlaceholderPluginValue extends PluginValue {
@@ -25,9 +26,16 @@ const addPromptInputEffect = StateEffect.define<DecorationSet>();
 
 // ================ 占位符小部件 ================
 class PlaceholderWidget extends WidgetType {
+	private i18n: I18nManager | null = null;
+
+	constructor(app: any) {
+		super();
+		this.i18n = I18nManager.getInstance(app);
+	}
+
 	toDOM() {
 		const span = document.createElement("span");
-		span.textContent = " 按下空格键启动AI";
+		span.textContent = this.i18n?.t('placeholder.input') || '按下空格键启动AI';
 		span.style.cssText = `
 			color: rgba(0,0,0,0.3);
 			pointer-events: none;
@@ -44,9 +52,14 @@ class PlaceholderWidget extends WidgetType {
 // ================ 插件核心类 ================
 class PlaceholderPluginClass implements PlaceholderPluginValue {
 	decorations: DecorationSet;
+	private _pluginInstance: AIPlugin | null = null;
 
 	constructor(view: EditorView) {
 		this.decorations = this.computeDecorations(view);
+	}
+
+	setPlugin(plugin: AIPlugin) {
+		this._pluginInstance = plugin;
 	}
 
 	update(update: ViewUpdate) {
@@ -86,7 +99,7 @@ class PlaceholderPluginClass implements PlaceholderPluginValue {
 
 	private addPlaceholderDecoration(builder: RangeSetBuilder<Decoration>, position: number) {
 		const deco = Decoration.widget({
-			widget: new PlaceholderWidget(),
+			widget: new PlaceholderWidget(this._pluginInstance?.app),
 			side: -1
 		});
 		builder.add(position, position, deco);
@@ -127,6 +140,7 @@ const PlaceholderKeyMap = keymap.of([
 class AIOperationsManager {
 	private _pluginInstance: AIPlugin | null = null;
 	private _abortController: AbortController | null = null;
+	private i18n: I18nManager | null = null;
 
 	cleanup() {
 		// this._pluginInstance = null;
@@ -138,6 +152,7 @@ class AIOperationsManager {
 
 	setPlugin(plugin: AIPlugin) {
 		this._pluginInstance = plugin;
+		this.i18n = I18nManager.getInstance(plugin.app);
 	}
 
 	getPlugin() {
@@ -150,7 +165,7 @@ class AIOperationsManager {
 		
 		if (!this.validatePluginInstance()) return;
 		
-		const notice = new Notice("AI 正在思考中...", 0);
+		const notice = new Notice(this.i18n?.t('notice.thinking') || 'AI is thinking...', 0);
 		const { settings, provider } = this.getSettings();
 		
 		if (!this.validateSettings(settings, provider, notice)) return;
@@ -191,7 +206,7 @@ class AIOperationsManager {
 			return false;
 		}
 
-		if (!settings.apiKey) {
+		if (!settings.apiKeys[settings.provider]) {
 			console.error('API key not set');
 			notice.hide();
 			return false;
@@ -247,20 +262,20 @@ class AIOperationsManager {
 		switch (settings.provider) {
 			case 'openai':
 			case 'deepseek':
-				headers['Authorization'] = `Bearer ${settings.apiKey}`;
+				headers['Authorization'] = `Bearer ${settings.apiKeys[settings.provider]}`;
 				break;
 			case 'claude':
-				headers['x-api-key'] = settings.apiKey;
+				headers['x-api-key'] = settings.apiKeys[settings.provider];
 				headers['anthropic-version'] = '2023-06-01';
 				break;
 			case 'azure':
-				headers['api-key'] = settings.apiKey;
+				headers['api-key'] = settings.apiKeys[settings.provider];
 				break;
 			case 'chatglm':
-				headers['Authorization'] = settings.apiKey;
+				headers['Authorization'] = settings.apiKeys[settings.provider];
 				break;
 			default:
-				headers['Authorization'] = `Bearer ${settings.apiKey}`;
+				headers['Authorization'] = `Bearer ${settings.apiKeys[settings.provider]}`;
 		}
 
 		return headers;
@@ -277,121 +292,175 @@ class AIOperationsManager {
 	}
 
 	private async makeRequest(settings: any, provider: any, headers: any, body: any) {
-		const response = await fetch(settings.apiEndpoint || provider.baseUrl, {
-			method: "POST",
-			headers,
-			body: JSON.stringify(body),
-			signal: this._abortController!.signal
-		});
+		const isStreamMode = settings.streamMode[settings.provider] ?? true;
 
-		if (!response.ok) {
-			throw new Error(`API request failed: ${response.statusText}`);
+		try {
+			if (isStreamMode) {
+				const response = await fetch(settings.apiEndpoints[settings.provider] || provider.baseUrl, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						...body,
+						stream: true
+					}),
+				});
+
+				if (!response.ok) {
+					const errorText = await response.text();
+					throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+				}
+
+				return response;
+			} else {
+				// 使用 obsidian 的 requestUrl
+				const requestParam: RequestUrlParam = {
+					url: settings.apiEndpoints[settings.provider] || provider.baseUrl,
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						...body,
+						stream: false
+					}),
+				};
+
+				const response = await requestUrl(requestParam);
+				return response;
+			}
+		} catch (error: any) {
+			if (isStreamMode && (error.name === 'TypeError' || error.message.includes('network'))) {
+				new Notice(`网络连接错误。建议在设置中关闭 Stream 模式后重试。\n错误信息: ${error.message}`);
+			}
+			console.error('Request failed:', error);
+			throw error;
 		}
-
-		if (!response.body) {
-			throw new Error('Response body is null');
-		}
-
-		return response;
 	}
 
 	private async handleStreamResponse(
-		response: Response,
-		view: EditorView,
-		line: { from: number },
-		originalEditor: any,
-		notice: Notice
-	) {
-		const reader = response.body!.getReader();
-		const decoder = new TextDecoder();
-		let currentPosition = line.from;  // 跟踪当前插入位置
+			response: Response | any,
+			view: EditorView,
+			line: { from: number },
+			originalEditor: any,
+			notice: Notice
+		) {
+			let currentPosition = line.from;
+			view.dispatch({
+				changes: {
+					from: line.from,
+					to: line.from,
+					insert: '',
+				},
+			});
 
-		// 初始化空内容
-		view.dispatch({
-			changes: {
-				from: line.from,
-				to: line.from,
-				insert: '',
-			},
-		});
+			const isStreamMode = this._pluginInstance?.settings.streamMode[this._pluginInstance?.settings.provider] ?? true;
 
-		try {
+			try {
+				if (isStreamMode) {
+					await this.handleStreamingResponse(response, view, currentPosition, originalEditor);
+				} else {
+					await this.handleNonStreamingResponse(response, view, currentPosition, originalEditor);
+				}
+			} catch (error) {
+				console.error('Error processing response:', error);
+				throw error;
+			}
+		}
+
+		private async handleStreamingResponse(response: Response, view: EditorView, currentPosition: number, originalEditor: any) {
+			const reader = response.body!.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
 
-				const chunk = decoder.decode(value, { stream: true });
-				const lines = chunk.split('\n');
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() || '';
 
 				for (const line of lines) {
-					if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
-
+					if (!line.trim() || line === 'data: [DONE]') continue;
+					
 					try {
-						const content = this.parseChunkContent(line);
-						if (content) {
-							if (!this.isEditorValid(originalEditor)) {
-								return;
-							}
+						const jsonString = line.replace(/^data: /, '');
+						const json = JSON.parse(jsonString);
+						const content = json.choices?.[0]?.delta?.content || '';
 
-							// 更新编辑器内容
-							view.dispatch({
-								changes: {
-									from: currentPosition,
-									to: currentPosition,
-									insert: content
-								}
-							});
-							
-							// 更新位置指针
+						if (content && this.isEditorValid(originalEditor)) {
+							this.updateEditor(view, currentPosition, content);
 							currentPosition += content.length;
 						}
 					} catch (e) {
-						console.error('Error parsing stream:', e);
+						console.error('Error parsing stream data:', e);
 					}
 				}
 			}
-		} finally {
-			reader.releaseLock();
 		}
-	}
 
-	private parseChunkContent(line: string): string {
-		try {
-			const data = JSON.parse(line.replace(/^data: /, ''));
-			const settings = this._pluginInstance!.settings;
-
-			switch (settings.provider) {
-				case 'claude':
-					return data.type === 'content_block_delta' ? data.delta.text : '';
-				case 'chatglm':
-					return data.choices[0].delta.content || '';
-				default: // OpenAI 格式
-					return data.choices[0].delta.content || '';
+		private async handleNonStreamingResponse(response: any, view: EditorView, currentPosition: number, originalEditor: any) {
+			try {
+				const content = response.json?.choices?.[0]?.message?.content || response.text;
+				if (content && this.isEditorValid(originalEditor)) {
+					this.updateEditor(view, currentPosition, content);
+				}
+			} catch (e) {
+				console.error('Error parsing non-stream response:', e);
+				throw e;
 			}
-		} catch (e) {
-			console.error('Error parsing chunk:', e);
-			return '';
 		}
-	}
 
-	private isEditorValid(originalEditor: any): boolean {
-		const currentEditor = this._pluginInstance?.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-		if (currentEditor !== originalEditor) {
-			console.log('Editor changed, aborting stream');
-			return false;
+		private updateEditor(view: EditorView, position: number, content: string) {
+			view.dispatch({
+				changes: {
+					from: position,
+					to: position,
+					insert: content
+				}
+			});
 		}
-		return true;
-	}
 
-	private handleError(error: any, notice: Notice) {
-		if (error.name === 'AbortError') {
-			console.log('AI 请求已取消');
-		} else {
-			console.error("启动AI失败:", error);
+		private isEditorValid(originalEditor: any): boolean {
+			const currentEditor = this._pluginInstance?.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+			if (currentEditor !== originalEditor) {
+				console.log('Editor changed, aborting stream');
+				return false;
+			}
+			return true;
 		}
-		notice.hide();
+
+		private handleError(error: any, notice: Notice) {
+			if (!this.i18n) return;
+
+			let errorMessage = this.i18n.t('notice.unknownError');
+
+			if (error.name === 'AbortError') {
+				errorMessage = this.i18n.t('notice.requestFailed');
+			} else if (error.status) {
+				switch (error.status) {
+					case 401:
+						errorMessage = this.i18n.t('notice.apiKeyInvalid');
+						break;
+					case 429:
+						errorMessage = this.i18n.t('notice.tooManyRequests');
+						break;
+					case 500:
+						errorMessage = this.i18n.t('notice.serverError');
+						break;
+					case 503:
+						errorMessage = this.i18n.t('notice.serviceUnavailable');
+						break;
+					default:
+						errorMessage = `${this.i18n.t('notice.requestFailed')} ${error.status} ${error.message || ''}`;
+				}
+			} else {
+				errorMessage = error.message || this.i18n.t('notice.requestFailed');
+			}
+
+			console.error("AI Request Failed:", error);
+			new Notice(errorMessage);
+			notice.hide();
+		}
 	}
-}
 
 // ================ 导出 ================
 export const PlaceholderPluginActions = new AIOperationsManager();
