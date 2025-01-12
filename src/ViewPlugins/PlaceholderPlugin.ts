@@ -28,9 +28,9 @@ const addPromptInputEffect = StateEffect.define<DecorationSet>();
 class PlaceholderWidget extends WidgetType {
 	private i18n: I18nManager | null = null;
 
-	constructor(app: any) {
+	constructor() {
 		super();
-		this.i18n = I18nManager.getInstance(app);
+		this.i18n = I18nManager.getInstance();
 	}
 
 	toDOM() {
@@ -99,7 +99,7 @@ class PlaceholderPluginClass implements PlaceholderPluginValue {
 
 	private addPlaceholderDecoration(builder: RangeSetBuilder<Decoration>, position: number) {
 		const deco = Decoration.widget({
-			widget: new PlaceholderWidget(this._pluginInstance?.app),
+			widget: new PlaceholderWidget(),
 			side: -1
 		});
 		builder.add(position, position, deco);
@@ -152,7 +152,7 @@ class AIOperationsManager {
 
 	setPlugin(plugin: AIPlugin) {
 		this._pluginInstance = plugin;
-		this.i18n = I18nManager.getInstance(plugin.app);
+		this.i18n = I18nManager.getInstance();
 	}
 
 	getPlugin() {

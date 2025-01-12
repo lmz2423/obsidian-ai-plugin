@@ -129,7 +129,7 @@ export class AISettingTab extends PluginSettingTab {
     constructor(app: App, plugin: AIPlugin) {
         super(app, plugin);
         this.plugin = plugin;
-        this.i18n = I18nManager.getInstance(app);
+        this.i18n = I18nManager.getInstance();
     }
 
     display(): void {

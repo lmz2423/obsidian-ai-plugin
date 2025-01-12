@@ -1,9 +1,20 @@
-import { defineConfig } from 'vite';
+import { defineConfig,PluginOption } from 'vite';
 import { resolve } from 'path';
 import builtins from 'builtin-modules';
 import { existsSync, copyFileSync, mkdirSync, readFileSync } from 'fs';
 import vue from '@vitejs/plugin-vue';
+import AutoImport from 'unplugin-auto-import/vite'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
+const ElementPlugin:Array<PluginOption> = [
+	AutoImport({
+		resolvers: [ElementPlusResolver()],
+	}),
+	Components({
+		resolvers: [ElementPlusResolver()],
+	}),
+]
 // 确保 dist 目录存在
 if (!existsSync('dist')) {
     mkdirSync('dist');
@@ -89,6 +100,7 @@ const baseConfig = {
                 });
             },
         },
+		...ElementPlugin,
     ],
     resolve: {
         alias: {
@@ -101,7 +113,7 @@ const baseConfig = {
 export default defineConfig(({ command, mode }) => {
     if (mode === 'preview') {
         return {
-            plugins: [vue()],
+            plugins: [vue(),...ElementPlugin],
             server: {
                 port: 5173,
                 host: true,

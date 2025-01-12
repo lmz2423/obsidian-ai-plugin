@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-	"types": ["node", "vue"],
+	"types": ["node", "vue","element-plus/global"],
     "baseUrl": ".",
     "inlineSourceMap": true,
     "inlineSources": true,

@@ -1,6 +1,5 @@
 import en from './locales/en';
 import zh from './locales/zh';
-import type { App } from 'obsidian';
 
 export type Language = 'en' | 'zh';
 
@@ -11,12 +10,10 @@ export interface I18n {
 
 export class I18nManager {
     private static instance: I18nManager;
-    private app: App;
     private locale: Language;
     private messages: { [key: string]: any };
 
-    private constructor(app: App) {
-        this.app = app;
+    private constructor() {
         this.locale = this.detectLocale();
         this.messages = {
             en,
@@ -24,9 +21,15 @@ export class I18nManager {
         };
     }
 
-    public static getInstance(app: App): I18nManager {
+    /**
+     * 获取 I18nManager 的单例实例
+     * 如果实例不存在则创建新实例，否则返回已有实例
+     * 使用单例模式确保整个应用只有一个国际化管理器实例
+     * @returns I18nManager 实例
+     */
+    public static getInstance(): I18nManager {
         if (!I18nManager.instance) {
-            I18nManager.instance = new I18nManager(app);
+            I18nManager.instance = new I18nManager();
         }
         return I18nManager.instance;
     }
