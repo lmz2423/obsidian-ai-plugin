@@ -8,7 +8,9 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AIModelChoose: typeof import('./src/components/AIModelChoose.vue')['default']
+    ElIcon: typeof import('element-plus/es')['ElIcon']
     ElOption: typeof import('element-plus/es')['ElOption']
+    ElOptionGroup: typeof import('element-plus/es')['ElOptionGroup']
     ElSelect: typeof import('element-plus/es')['ElSelect']
     PagesChoose: typeof import('./src/components/PagesChoose.vue')['default']
     PromptInput: typeof import('./src/components/PromptInput.vue')['default']

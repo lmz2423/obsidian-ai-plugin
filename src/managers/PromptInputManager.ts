@@ -1,14 +1,19 @@
 import { createApp } from 'vue'
-import type { App } from '@vue/runtime-core'
+import type { App as VueApp } from '@vue/runtime-core'
 import { EditorView } from '@codemirror/view'
 import PromptInput from '../components/PromptInput.vue'
 import { PlaceholderPluginActions } from '../ViewPlugins/PlaceholderPlugin'
+import { App } from 'obsidian'
+
 export class PromptInputManager {
-  private vueApp: App | null = null
+  private vueApp: VueApp | null = null
   private container: HTMLElement | null = null
   private componentInstance: InstanceType<typeof PromptInput> | null = null
 
-  constructor(private view: EditorView) {}
+  constructor(
+    private view: EditorView,
+    private app: App
+  ) {}
 
   show() {
     // 清理已存在的实例
@@ -21,6 +26,7 @@ export class PromptInputManager {
     // 创建 Vue 实例，添加 start-ai 事件处理
     this.vueApp = createApp(PromptInput, {
       view: this.view,
+      app: this.app,
       onClose: () => this.cleanup(),
       'onStart-ai': (prompt: string) => {
         // 调用 AI 插件
@@ -77,9 +83,8 @@ export function cleanupCurrentManager() {
   }
 }
 
-// 创建新实例的工厂函数
-export function createPromptInputManager(view: EditorView): PromptInputManager {
+export function createPromptInputManager(view: EditorView, app: App): PromptInputManager {
   cleanupCurrentManager()
-  currentManager = new PromptInputManager(view)
+  currentManager = new PromptInputManager(view, app)
   return currentManager
 } 

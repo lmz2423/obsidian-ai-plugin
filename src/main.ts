@@ -1,5 +1,5 @@
 import {Plugin, MarkdownView} from 'obsidian';
-import { AISettingTab, AIPluginSettings, DEFAULT_SETTINGS, AI_PROVIDERS, AIProvider } from './settings';
+import { AISettingTab, AIPluginSettings, DEFAULT_SETTINGS } from './settings';
 import { PlaceholderPlugin, PlaceholderPluginActions } from './ViewPlugins/PlaceholderPlugin';
 import type { Extension } from '@codemirror/state';
 
@@ -74,4 +74,4 @@ export default class AIPlugin extends Plugin {
     async saveSettings() {
         await this.saveData(this.settings);
     }
-} 
+}

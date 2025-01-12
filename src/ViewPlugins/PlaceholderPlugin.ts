@@ -127,7 +127,8 @@ const PlaceholderKeyMap = keymap.of([
 			const line = view.state.doc.lineAt(cursor);
 			
 			if (line.text.trim().length === 0) {
-				const promptManager = createPromptInputManager(view);
+				const app = PlaceholderPluginActions.getPlugin()?.app;
+				const promptManager = createPromptInputManager(view, app);
 				promptManager.show();
 				return true;
 			}
