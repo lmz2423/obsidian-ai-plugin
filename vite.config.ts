@@ -1,7 +1,7 @@
 import { defineConfig,PluginOption } from 'vite';
 import { resolve } from 'path';
 import builtins from 'builtin-modules';
-import { existsSync, copyFileSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, copyFileSync, mkdirSync, readFileSync, watch } from 'fs';
 import vue from '@vitejs/plugin-vue';
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
@@ -15,20 +15,26 @@ const ElementPlugin:Array<PluginOption> = [
 		resolvers: [ElementPlusResolver()],
 	}),
 ]
+
 // 确保 dist 目录存在
 if (!existsSync('dist')) {
     mkdirSync('dist');
 }
 
-// 复制必要文件到 dist
-copyFileSync('manifest.json', 'dist/manifest.json');
-if (existsSync('src/css/styles.css')) {
-    console.log('初始化: 复制 styles.css 到 dist 目录');
-    copyFileSync('src/css/styles.css', 'dist/styles.css');
+// 复制文件到 dist 的函数
+function copyToDist(filename: string, source?: string) {
+    const sourcePath = source ? source : filename;
+    if (existsSync(sourcePath)) {
+        copyFileSync(sourcePath, `dist/${filename}`);
+        console.log(`已复制 ${filename} 到 dist 目录`);
+    }
 }
 
+// 初始化复制必要文件
+copyToDist('manifest.json');
+
 // 用于缓存文件内容的变量
-let lastStyleContent = existsSync('src/css/styles.css') ? readFileSync('src/css/styles.css', 'utf-8') : '';
+let lastManifestContent = existsSync('manifest.json') ? readFileSync('manifest.json', 'utf-8') : '';
 
 // 创建基础构建配置
 const baseConfig = {
@@ -38,31 +44,32 @@ const baseConfig = {
                 compilerOptions: {
                     // isCustomElement: (tag) => tag.includes('-')
                 }
+            },
+            script: {
+                defineModel: true,
+                propsDestructure: true
             }
         }),
         {
             name: 'watch-external',
             async buildStart() {
                 if (process.env.NODE_ENV !== 'production') {
-                    this.addWatchFile('src/css/styles.css');
+                    this.addWatchFile('manifest.json');
                 }
             },
             handleHotUpdate({ file, server }) {
-                if (file.endsWith('styles.css')) {
+                if (file.endsWith('manifest.json')) {
                     const currentContent = readFileSync(file, 'utf-8');
-                    // 只在文件内容真正变化时才更新
-                    if (currentContent !== lastStyleContent) {
-                        lastStyleContent = currentContent;
-                        copyFileSync('src/css/styles.css', 'dist/styles.css');
-                        console.log('styles.css 已更新');
-                        server.ws.send({ type: 'full-reload' });
+                    if (currentContent !== lastManifestContent) {
+                        lastManifestContent = currentContent;
+                        copyToDist('manifest.json');
                     }
                 }
             },
         },
         {
             name: 'watch-build',
-            apply: 'serve',
+            apply: 'serve' as const,
             configureServer(server) {
                 server.httpServer?.once('listening', () => {
                     const { build } = require('vite');
@@ -84,16 +91,18 @@ const baseConfig = {
                                 output: {
                                     format: 'cjs',
                                     exports: 'default',
-                                    sourcemap: 'inline',
                                     assetFileNames: (assetInfo) => {
-                                        return assetInfo.name === 'style.css' ? 'styles.css' : assetInfo.name || 'unknown';
+                                        if (assetInfo.name === 'style.css') {
+                                            return 'styles.css';
+                                        }
+                                        return assetInfo.name || 'unknown';
                                     },
                                 },
                             },
                             outDir: 'dist',
                             emptyOutDir: false,
                             watch: {},
-                            sourcemap: 'inline',
+                            sourcemap: true,
                             cssCodeSplit: false,
                         },
                     });
@@ -106,6 +115,13 @@ const baseConfig = {
         alias: {
             '@': resolve(__dirname, 'src'),
         },
+        dedupe: ['vue'],
+    },
+    optimizeDeps: {
+        exclude: ['obsidian']
+    },
+    css: {
+        postcss: {},
     },
 };
 
@@ -117,32 +133,34 @@ export default defineConfig(({ command, mode }) => {
             server: {
                 port: 5173,
                 host: true,
-                open: '/src/compoentPreview/index.html',
+                open: '/src/componentPreview/index.html',
             },
             build: {
                 outDir: 'dist',
                 emptyOutDir: false,
                 rollupOptions: {
                     input: {
-                        preview: resolve(__dirname, 'src/compoentPreview/index.html')
+                        preview: resolve(__dirname, 'src/componentPreview/index.html')
                     },
+                    external: ['obsidian'],
                     output: {
                         format: 'es',
                         entryFileNames: '[name].js',
                         sourcemap: true,
                     }
                 },
-                sourcemap: 'inline',
+                sourcemap: true,
                 target: 'es2018',
                 minify: process.env.NODE_ENV === 'production',
             },
         };
-    }
+    } 
 
     // 默认配置（插件构建）
     return {
         ...baseConfig,
         build: {
+			sourcemap: false,
             lib: {
                 entry: resolve(__dirname, 'src/main.ts'),
                 formats: ['cjs'],
@@ -160,7 +178,10 @@ export default defineConfig(({ command, mode }) => {
                     format: 'cjs',
                     exports: 'default',
                     assetFileNames: (assetInfo) => {
-                        return assetInfo.name === 'style.css' ? 'styles.css' : assetInfo.name || 'unknown';
+                        if (assetInfo.name === 'style.css') {
+                            return 'styles.css';
+                        }
+                        return assetInfo.name || 'unknown';
                     },
                 },
             },

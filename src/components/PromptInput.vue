@@ -5,10 +5,12 @@ import AIModelChoose, { SystemModel } from "./AIModelChoose.vue";
 import PagesChoose from './PagesChoose.vue';
 import { App, TFile } from 'obsidian';
 
-const props = defineProps<{
+interface Props {
 	view: EditorView;
 	app: App;
-}>();
+}
+
+const props = defineProps<Props>();
 
 const visible = ref(false);
 const promptText = ref("");

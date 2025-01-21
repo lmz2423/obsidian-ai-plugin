@@ -283,11 +283,13 @@ class AIOperationsManager {
 	}
 
 	private buildRequestBody(settings: any, prompt: string) {
+		const temperature = settings.temperature[settings.provider] ?? 0.7;
+		
 		return {
 			model: settings.model,
 			messages: [{ role: 'user', content: prompt }],
 			stream: true,
-			temperature: settings.temperature,
+			temperature,
 			...(settings.provider === 'claude' && { max_tokens: 1000 })
 		};
 	}

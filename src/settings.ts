@@ -89,7 +89,8 @@ export const AI_PROVIDERS: AIProvider[] = [
         baseUrl: 'https://api.deepseek.com/v1/chat/completions',
         models: [
             { id: 'deepseek-chat', name: 'DeepSeek Chat' },
-            { id: 'deepseek-coder', name: 'DeepSeek Coder' }
+            { id: 'deepseek-coder', name: 'DeepSeek Coder' },
+			{ id: 'deepseek-reasoner', name: 'DeepSeek r1' }
         ]
     },
     {
